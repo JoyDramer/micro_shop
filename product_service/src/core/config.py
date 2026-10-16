@@ -1,10 +1,15 @@
-import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    # Если файла .env нет, он возьмет эти значения по умолчанию
-    DATABASE_URL: str = "postgresql+asyncpg://shop_user:shop_password@localhost:5432/shop_db"
+    DATABASE_URL: str
+    REDIS_URL: str = "redis://redis:6379/0"      
+    RABBITMQ_URL: str = "amqp://guest:guest@rabbitmq:5672/" 
+    SECRET_KEY: str
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(
+        env_file=".env", 
+        env_file_encoding="utf-8",
+        extra="ignore" 
+    )
 
 settings = Settings()

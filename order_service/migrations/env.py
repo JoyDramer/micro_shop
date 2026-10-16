@@ -14,6 +14,7 @@ from src.models.order import Order, OrderItem
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -62,14 +63,16 @@ def do_run_migrations(connection):
         context.run_migrations()
 
 async def run_async_migrations():
-    # Берем URL из нашего файла .env
-    config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
-
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+
+    async with connectable.connect() as connection:
+        await connection.run_sync(do_run_migrations)
+
+    await connectable.dispose()
 
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

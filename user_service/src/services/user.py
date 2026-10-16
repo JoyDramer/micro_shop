@@ -1,9 +1,10 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import bcrypt
+import secrets
 
 from src.models.user import User
-from src.schemas.user import UserCreate
+from src.schemas.user import UserCreate, UserUpdate
 
 def get_password_hash(password: str) -> str:
     """Хеширование пароля через чистый bcrypt"""
@@ -31,21 +32,41 @@ async def create_user(db: AsyncSession, user_in: UserCreate) -> User:
     db_user = User(
         email=user_in.email,
         phone_number=user_in.phone_number,
-        telegram_id=user_in.telegram_id,
         hashed_password=hashed_pwd
+        # ФИО при регистрации остаются пустыми, telegram_id удален
     )
     
     db.add(db_user)
     await db.commit()
     await db.refresh(db_user)
-    
     return db_user
+
+async def update_user_profile(db: AsyncSession, user: User, update_data: UserUpdate) -> User:
+    """Обновляет ФИО и телефон пользователя (вызывается при умном чекауте)"""
+    # exclude_unset=True означает, что мы обновим только те поля, которые реально прислали
+    update_dict = update_data.model_dump(exclude_unset=True)
+    
+    for field, value in update_dict.items():
+        setattr(user, field, value)
+        
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+def generate_reset_token() -> str:
+    """Генерирует безопасный случайный токен для письма сброса пароля"""
+    return secrets.token_urlsafe(32)
+
+async def update_user_password(db: AsyncSession, user: User, new_password: str) -> User:
+    """Сохраняет новый хеш пароля при сбросе"""
+    user.hashed_password = get_password_hash(new_password)
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 async def authenticate_user(db: AsyncSession, email: str, password: str) -> User | None:
     """Ищет пользователя и проверяет правильность пароля"""
     user = await get_user_by_email(db, email=email)
-    if not user:
-        return None
-    if not verify_password(password, user.hashed_password):
+    if not user or not verify_password(password, user.hashed_password):
         return None
     return user

@@ -1,10 +1,13 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from typing import Optional
+from decimal import Decimal
 
 from src.models.product import Product
 from src.schemas.product import ProductCreate, ProductUpdate
+from src.core.rabbitmq import publish_product_event
 
+# Создание нового товара
 # Создание нового товара
 async def create_product(session: AsyncSession, product_in: ProductCreate) -> Product:
     # model_dump() превращает Pydantic-схему в обычный словарь
@@ -12,6 +15,14 @@ async def create_product(session: AsyncSession, product_in: ProductCreate) -> Pr
     session.add(db_product)
     await session.commit()
     await session.refresh(db_product)
+    
+    # Отправляем в RabbitMQ только базовые данные для сервиса заказов
+    await publish_product_event(
+        product_data={
+            "id": db_product.id,
+            "price": float(db_product.price) # Заменили rent_price на обычный price
+        }
+    )
     return db_product
 
 # Получение одного товара по ID

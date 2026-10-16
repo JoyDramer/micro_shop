@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from src.core.redis_client import redis_client
 from src.core.config import settings
-from src.core.database import get_db
+from src.database import get_db
 
 # Берем секретный ключ и алгоритм из конфига (теперь они безопасны!)
 SECRET_KEY = settings.SECRET_KEY

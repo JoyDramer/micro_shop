@@ -5,21 +5,36 @@ from fastapi import FastAPI
 # Импортируем наш роутер
 from src.api.products import router as products_router
 
-# Импортируем фоновую задачу для RabbitMQ
-from src.core.rabbitmq_worker import consume_orders
+# Импортируем фоновые задачи для RabbitMQ (ДОБАВИЛИ consume_product_updates)
+from src.core.rabbitmq_worker import consume_orders, consume_cancellations, consume_product_updates
+
+# Импортируем базу данных и модели для автосоздания таблиц
+from src.core.database import engine, Base
+from src.models import *  # Гарантирует, что все модели загрузятся
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # При запуске сервера создаем фоновую задачу, которая будет слушать RabbitMQ
-    task = asyncio.create_task(consume_orders())
+    # 1. Автоматически создаем таблицы в базе при старте (если их еще нет)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    # 2. Запускаем фоновые задачи для RabbitMQ
+    task_orders = asyncio.create_task(consume_orders())
+    task_cancellations = asyncio.create_task(consume_cancellations())
+    task_product_updates = asyncio.create_task(consume_product_updates()) # Наш новый слушатель
+    
     yield
-    # При остановке сервера — корректно её завершаем
-    task.cancel()
+    
+    # При остановке сервера — корректно завершаем ВСЕ задачи
+    task_orders.cancel()
+    task_cancellations.cancel()
+    task_product_updates.cancel()
 
 app = FastAPI(
     title="Product Service", 
     description="Каталог микронаушников",
-    lifespan=lifespan  # <-- Передаем lifespan в приложение
+    lifespan=lifespan,
+    root_path="/api/products"
 )
 
 # Подключаем роутер к приложению

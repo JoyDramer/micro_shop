@@ -1,0 +1,13 @@
+version: "3.8"
+
+services:
+  gateway:
+    image: nginx:alpine
+    container_name: shop_api_gateway
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    # extra_hosts нужен, чтобы host.docker.internal работал на Linux (на Win/Mac работает и без него)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

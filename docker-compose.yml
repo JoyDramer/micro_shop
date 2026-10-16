@@ -1,35 +1,197 @@
-version: "3.8"
-
 services:
+  # 1. БАЗЫ ДАННЫХ И ИНФРАСТРУКТУРА
   postgres:
-    image: postgres:15
-    container_name: shop_db_cluster
+    image: postgres:15-alpine
+    container_name: shop_postgres
+    restart: always
     environment:
-      POSTGRES_USER: shop_user
-      POSTGRES_PASSWORD: shop_password
-      POSTGRES_DB: default_db
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: shop_db
     ports:
       - "5432:5432"
     volumes:
-      - shop_postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data
 
   redis:
-    image: redis:7
-    container_name: shop_redis_cache
+    image: redis:alpine
+    container_name: shop_redis
+    restart: always
     ports:
       - "6379:6379"
 
-  # ДОБАВИЛИ RABBITMQ:
   rabbitmq:
-    image: rabbitmq:3-management
-    container_name: shop_message_broker
-    environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+    image: rabbitmq:3-management-alpine
+    container_name: shop_rabbitmq
+    restart: always
     ports:
-      - "5672:5672" # Порт для общения сервисов
-      - "15672:15672" # Порт для веб-интерфейса
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. МАРШРУТИЗАЦИЯ
+  api_gateway:
+    build: ./api_gateway
+    container_name: shop_api_gateway
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./api_gateway/certs:/etc/nginx/certs:ro
+    depends_on:
+      user_service:
+        condition: service_started
+      frontend:
+        condition: service_started
+      order_service:
+        condition: service_started
+      product_service:
+        condition: service_started
+
+  # 3. PYTHON МИКРОСЕРВИСЫ
+  user_service:
+    build: ./user_service
+    container_name: shop_user_service
+    restart: always
+    ports:
+      - "127.0.0.1:8001:8000"
+    env_file:
+      - ./user_service/.env
+    depends_on:
+      postgres:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+
+  product_service:
+    build: ./product_service
+    container_name: shop_product_service
+    restart: always
+    ports:
+      - "127.0.0.1:8002:8000"
+    env_file:
+      - ./product_service/.env
+    depends_on:
+      postgres:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+
+  order_service:
+    build: ./order_service
+    container_name: shop_order_service
+    restart: always
+    ports:
+      - "127.0.0.1:8003:8000"
+    env_file:
+      - ./order_service/.env
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+
+  rent_service:
+    build: ./rent_service
+    container_name: shop_rent_service
+    restart: always
+    ports:
+      - "127.0.0.1:8004:8000"
+    env_file:
+      - ./rent_service/.env
+
+  payment_service:
+    build: ./payment_service
+    container_name: shop_payment_service
+    restart: always
+    ports:
+      - "127.0.0.1:8006:8000"
+    env_file:
+      - ./payment_service/.env
+
+  notification_service:
+    build: ./notification_service
+    container_name: shop_notification_service
+    restart: always
+    env_file:
+      - ./notification_service/.env
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  # 4. ФРОНТЕНД И АДМИНКА
+  frontend:
+    build:
+      context: ./frontend
+    container_name: shop_frontend
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./frontend/.env
+      
+  twenty:
+    image: twentycrm/twenty:latest
+    container_name: shop_twenty_crm
+    restart: always
+    ports:
+      - "3001:3000"
+    environment:
+      - PORT=3000
+      - PG_DATABASE_URL=postgres://user:password@postgres:5432/twenty
+      - REDIS_URL=redis://redis:6379
+      - SERVER_URL=http://201.24.50.182:3001
+      - FRONT_BASE_URL=http://201.24.50.182:3001
+      - ACCESS_TOKEN_SECRET=replace_me_with_random_string_access
+      - LOGIN_TOKEN_SECRET=replace_me_with_random_string_login
+      - REFRESH_TOKEN_SECRET=replace_me_with_random_string_refresh
+      - APP_SECRET=SuperSecretKeyForTwentyCRM2026!RandomString12345
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+  twenty_worker:
+    image: twentycrm/twenty:latest
+    container_name: shop_twenty_worker
+    restart: always
+    command: ["yarn", "worker:prod"]
+    environment:
+      - PG_DATABASE_URL=postgres://user:password@postgres:5432/twenty
+      - REDIS_URL=redis://redis:6379
+      - SERVER_URL=http://201.24.50.182:3001
+      - FRONT_BASE_URL=http://201.24.50.182:3001
+      - ACCESS_TOKEN_SECRET=replace_me_with_random_string_access
+      - LOGIN_TOKEN_SECRET=replace_me_with_random_string_login
+      - REFRESH_TOKEN_SECRET=replace_me_with_random_string_refresh
+      - APP_SECRET=SuperSecretKeyForTwentyCRM2026!RandomString12345
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+
+
+  admin_twenty:
+    build: ./admin_twenty
+    container_name: shop_admin_twenty
+    restart: always
+    environment:
+      - TWENTY_API_URL=http://twenty:3000/rest
+      - TWENTY_API_KEY=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImMyMDk0YjQyLTM5NTEtNGZjZi05MmViLWZlYjRmM2NiNzllMyJ9.eyJzdWIiOiI5NWMxYjM4Ny1iMDZhLTQzNWUtYjZiZS0wOGUzYTI5YTlkYWEiLCJ0eXBlIjoiQVBJX0tFWSIsIndvcmtzcGFjZUlkIjoiOTVjMWIzODctYjA2YS00MzVlLWI2YmUtMDhlM2EyOWE5ZGFhIiwiaWF0IjoxNzkwMjQxOTYxLCJleHAiOjQ5NDM4NDE5NjAsImp0aSI6ImQwMjUzYzA5LWFjMzQtNDcxMS1hNTM3LTlhMWJjOTNiNmUxOSJ9.wJ3osCevCZvAft6E1vThu9ZykB4Enw7A3UJksX2qzxmgdyzM1DXbM9AcpSNUOFEPAzy5HeAIYz9dZ_Go6TxTgQ
+      - RABBITMQ_HOST=rabbitmq
+    depends_on:
+      twenty:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
 
 volumes:
-  shop_postgres_data:
+  postgres_data:

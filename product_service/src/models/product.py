@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Numeric, Boolean
+from sqlalchemy import Column, Integer, String, Text, Numeric, Boolean, JSON
 from src.core.database import Base
 from src.models.idempotency import ProcessedEvent
 
@@ -9,11 +9,9 @@ class Product(Base):
     name = Column(String(255), index=True, nullable=False)      # наименование
     product_type = Column(String(50), nullable=False)           # тип (магнитные/капсульные)
     category = Column(String(100), index=True, nullable=False)  # категория
-    image_url = Column(String, nullable=True)                   # ссылка на изображение
-    is_active = Column(Boolean, default=True)                   # статус (True - показывается, False - скрыт)
+    images = Column(JSON, nullable=True, default=list)          # НОВОЕ: массив ссылок на изображения 
     description = Column(Text, nullable=True)                   # описание
-    discount = Column(Integer, default=0)                       # скидка (в процентах, от 0 до 100)
-    # Системные поля магазина:
     price = Column(Numeric(10, 2), nullable=False)              # базовая цена
-    stock = Column(Integer, default=0, nullable=False)
-    reserved = Column(Integer, default=0, server_default="0", nullable=False)          # остаток на складе
+    stock = Column(Integer, default=0, nullable=False)          # общее количество на складе
+    reserved = Column(Integer, default=0, server_default="0", nullable=False) # резерв под заказы
+    is_bestseller = Column(Boolean, default=False)              # остаток на складе
